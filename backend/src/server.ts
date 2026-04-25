@@ -1,6 +1,8 @@
 import { pino } from "pino";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { assertPlanetExists, buildGraph } from "./domain/graph.js";
+import { loadTravels } from "./repository/travels.js";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -39,7 +41,21 @@ logger.info(
 	"config loaded",
 );
 
-const app = buildApp({ loggerInstance: logger, config });
+let graph: ReturnType<typeof buildGraph>;
+try {
+	const travels = loadTravels(config.routesDbPath);
+	graph = buildGraph(travels);
+	assertPlanetExists(graph, config.departure);
+	logger.info(
+		{ travels: travels.length, planets: graph.size },
+		"routes graph built",
+	);
+} catch (err) {
+	logger.error({ err }, "failed to build routes graph");
+	process.exit(1);
+}
+
+const app = buildApp({ loggerInstance: logger, config, graph });
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "0.0.0.0";
