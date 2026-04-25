@@ -1,5 +1,6 @@
 import { pino } from "pino";
 import { buildApp } from "./app.js";
+import { loadConfig } from "./config.js";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -13,7 +14,32 @@ const logger = pino({
 	}),
 });
 
-const app = buildApp({ loggerInstance: logger });
+const configPath = process.argv[2] ?? process.env.CONFIG_PATH;
+if (!configPath) {
+	logger.error(
+		"missing config path: pass it as CLI arg or set CONFIG_PATH env var",
+	);
+	process.exit(1);
+}
+
+let config: ReturnType<typeof loadConfig>;
+try {
+	config = loadConfig(configPath);
+} catch (err) {
+	logger.error({ err }, "failed to load config");
+	process.exit(1);
+}
+
+logger.info(
+	{
+		autonomy: config.autonomy,
+		departure: config.departure,
+		routesDbPath: config.routesDbPath,
+	},
+	"config loaded",
+);
+
+const app = buildApp({ loggerInstance: logger, config });
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "0.0.0.0";
