@@ -1,29 +1,77 @@
-# Software Eng Technical Test
+# Millennium Falcon
 
-## What are the odds?
+Backend service that computes one of the fastest routes for the Millennium Falcon to reach a target planet, given a SQLite database of inter-planet routes and the ship's fuel autonomy.
 
-The Death Star - the Empire's ultimate weapon - is almost operational and is currently approaching the Endor planet. The countdown has started.
+See [SUBJECT.md](SUBJECT.md) for the original problem statement.
 
-Han Solo, Chewbacca, Leia and C3PO are currently on Tatooine boarding on the Millennium Falcon. They must reach Endor to join the Rebel fleet and destroy the Death Star before it annihilates the planet.
+## Stack
 
-### Routes
+Node.js 22 · TypeScript · Fastify · Zod · `better-sqlite3` · `heap-js` · Vitest · Biome · Docker
 
-The Millennium Falcon has an onboard map containing the list of all planets in the galaxy, and the number of days it takes to go from one to the other using a Hyperspace jump.
+## Quick start — Docker
 
-### Autonomy
+```bash
+cd backend
+docker build -t millennium-falcon .
 
-However, the Millennium Falcon is not the newest ship of its kind, and it has a limited autonomy. If it's lacking fuel to achieve his next Hyperspace jump, it first must stop for 1 day on the nearby planet to refuel.
-For example, if its autonomy is 6 days, and it has already done a 4 days Hyperspace jump. It can reach another planet that is 1 or 2 days away from its current position. To reach planets that are 3 days or more away, it must refuel first.
+# Mount the directory holding millennium-falcon.json + the SQLite DB at /data
+docker run --rm -p 3000:3000 -v "$(pwd)/../example:/data" millennium-falcon
+```
 
-## The mission
+Then:
 
-Your mission is to create a docker image containing the backend of a web application that computes and displays one of the fastest route so that the Millennium Falcon reaches Endor in time and saves the galaxy.
+```bash
+curl -X POST http://localhost:3000/compute \
+  -H "content-type: application/json" \
+  -d '{"arrival": "Endor"}'
+# → {"duration":8,"route":["Tatooine","Hoth","Endor"]}
+```
 
-### Back-end
+## Quick start — local (Node.js 22+)
 
-When it starts, the back-end service will read a JSON configuration file containing the autonomy, the path towards an SQLite database file containing all the routes, and the name of the planet where the Millennium Falcon is currently parked (Tatooine). It will then listen to an endpoint `/compute` for a message containing the name of the planet that the empire wants to destroy (Endor).
+```bash
+cd backend
+npm ci
+npm run dev -- ../example/millennium-falcon.json
+```
 
-**millennium-falcon.json**
+## API
+
+### `POST /compute`
+
+**Request body**:
+
+```json
+{ "arrival": "Endor" }
+```
+
+**Response — `200`**:
+
+```json
+{ "duration": 8, "route": ["Tatooine", "Hoth", "Endor"] }
+```
+
+`duration` includes refuel days. `route` does **not** duplicate a planet on a refuel stop.
+
+**Errors** all share a uniform shape:
+
+```json
+{ "error": { "code": "NO_ROUTE", "message": "No route to Endor" } }
+```
+
+| Status | Code            | When                                                                |
+| ------ | --------------- | ------------------------------------------------------------------- |
+| `400`  | `INVALID_BODY`  | Request body fails validation (missing field, wrong type, bad JSON) |
+| `404`  | `NO_ROUTE`      | No path between configured `departure` and the requested `arrival`  |
+| `500`  | `INTERNAL_ERROR`| Unexpected server error (logged, no internal details leaked)        |
+
+### `GET /health`
+
+Returns `{ "status": "ok" }`. Used by the Docker `HEALTHCHECK`.
+
+## Configuration
+
+The server reads a JSON config file at startup. The path is passed as a CLI argument or via the `CONFIG_PATH` env var.
 
 ```json
 {
@@ -33,75 +81,61 @@ When it starts, the back-end service will read a JSON configuration file contain
 }
 ```
 
-- autonomy (integer): autonomy of the Millennium Falcon in days.
-- departure (string): Planet where the Millennium Falcon is on day 0.
-- routes_db (string): Path toward a SQLite database file containing the routes. The path can be either absolute or relative to the location of the `millennium-falcon.json` file itself.
+- `autonomy` (positive int): max fuel in days.
+- `departure` (string): name of the planet on day 0.
+- `routes_db` (string): path to the SQLite DB. **Resolved relative to the config file**, not the current working directory.
 
-The SQLite database will contain a table named ROUTES. Each row in the table represents a space route. Routes can be travelled **in any direction** (from origin to destination or vice-versa).
+The SQLite database must contain a `routes` table:
 
-- ORIGIN (TEXT): Name of the origin planet. Cannot be null or empty.
-- DESTINATION (TEXT): Name of the destination planet. Cannot be null or empty.
-- TRAVEL_TIME (INTEGER): Number days needed to travel from one planet to the other. Must be strictly positive.
+| Column        | Type             |
+| ------------- | ---------------- |
+| `origin`      | `TEXT`           |
+| `destination` | `TEXT`           |
+| `travel_time` | `UNSIGNED INTEGER` |
 
-| ORIGIN   | DESTINATION | TRAVEL_TIME |
-| -------- | ----------- | ----------- |
-| Tatooine | Dagobah     | 4           |
-| Dagobah  | Endor       | 1           |
+Routes are bidirectional (a row `A → B (t)` also lets the ship travel `B → A` in `t` days).
 
-**request payload**
+## Algorithm
 
-```json
-{
-  "arrival": "Endor"
-}
+The problem is a **shortest-path search with a state-dependent transition** (the cost of an arc depends on the fuel left when you take it). Plain Dijkstra on planets is not enough — a planet may be visited usefully with several different fuel levels.
+
+**Approach**: Dijkstra on the extended state graph `(planet, fuel_remaining)`. Two transitions from a state `(p, fuel)`:
+
+- **jump** to a neighbour `n` if `fuel ≥ travelTime(p, n)`: new state `(n, fuel - travelTime)`, cost `+travelTime`.
+- **refuel** on `p` if `fuel < autonomy`: new state `(p, autonomy)`, cost `+1`.
+
+The first time the search pops a state with `planet == arrival`, the result is provably optimal.
+
+Implementation: [`backend/src/domain/shortest-path.ts`](backend/src/domain/shortest-path.ts).
+
+## Testing
+
+```bash
+cd backend
+npm run lint
+npm run typecheck
+npm test
 ```
 
-- arrival (string): Planet the Millennium Falcon needs to reach.
+A stress test with a 50,000-planet generated graph lives at [`backend/tests/domain/shortest-path.stress.test.ts`](backend/tests/domain/shortest-path.stress.test.ts).
 
-## Example
+## Project layout
 
-**[universe.db](example/universe.db?raw=true)** (click to download)
-| ORIGIN | DESTINATION | TRAVEL_TIME |
-|----------|-------------|-------------|
-| Tatooine | Dagobah | 6 |
-| Dagobah | Endor | 4 |
-| Dagobah | Hoth | 1 |
-| Hoth | Endor | 1 |
-| Tatooine | Hoth | 6 |
-
-**[millennium-falcon.json](example/millennium-falcon.json?raw=true)** (click to download)
-
-```json
-{
-  "autonomy": 6,
-  "departure": "Tatooine",
-  "routes_db": "universe.db"
-}
 ```
-
-Request payload:
-
-```json
-{
-  "arrival": "Endor"
-}
+backend/
+  src/
+    app.ts              # Fastify factory (testable without listen)
+    server.ts           # entrypoint: load config, build graph, listen
+    config.ts           # load + validate millennium-falcon.json
+    errors.ts           # HttpError base + typed subclasses
+    domain/
+      graph.ts          # build adjacency map from travels
+      shortest-path.ts  # Dijkstra over (planet, fuel)
+    repository/
+      database.ts       # open SQLite (read-only)
+      travels.ts        # read travels from the routes table
+    routes/compute.ts   # POST /compute handler
+    schemas/            # Zod schemas
+  tests/                # unit + integration tests (mirrors src/)
+  Dockerfile
 ```
-
-The endpoint should return :
-
-```json
-{
-  "duration": 8,
-  "route": ["Tatooine", "Hoth", "Endor"]
-}
-```
-
-(the Millennium Falcon must refuel for 1 day on Hoth).
-
-## Final note
-
-The only constraint on the technological stack is to provide a docker image that could be build and run on a laptop. Except from that, you are free to use whatever technology you think is best suited for the task.
-
-We are looking for high quality code: typically something that you would put into production and be proud of.
-
-Have fun!
