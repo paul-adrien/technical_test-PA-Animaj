@@ -22,6 +22,7 @@ export function registerComputeRoute(app: FastifyInstance): void {
 					200: computeResponseSchema,
 					400: errorResponseSchema,
 					404: errorResponseSchema,
+					429: errorResponseSchema,
 					500: errorResponseSchema,
 				},
 			},

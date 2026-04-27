@@ -42,9 +42,16 @@ export function registerErrorHandler(app: FastifyInstance): void {
 				.status(400)
 				.send({ error: { code: "INVALID_BODY", message } });
 		}
-		// Fastify built-in 4xx (malformed JSON, content-type errors, etc.)
 		const status = (error as { statusCode?: number }).statusCode ?? 500;
 		const message = error instanceof Error ? error.message : "Bad request";
+
+		// Rate limiter throws a FastifyError with statusCode 429.
+		if (status === 429) {
+			return reply
+				.status(429)
+				.send({ error: { code: "RATE_LIMITED", message } });
+		}
+		// Other Fastify built-in 4xx (malformed JSON, content-type errors, etc.)
 		if (status >= 400 && status < 500) {
 			return reply
 				.status(status)

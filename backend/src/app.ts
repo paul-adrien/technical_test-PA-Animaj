@@ -1,3 +1,5 @@
+import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import type { FastifyInstance, FastifyServerOptions } from "fastify";
@@ -37,6 +39,16 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 	app.decorate("graph", graph);
 
 	registerErrorHandler(app);
+
+	app.register(cors, {
+		origin: process.env.CORS_ORIGIN ?? true,
+		methods: ["GET", "POST"],
+	});
+
+	app.register(rateLimit, {
+		max: Number(process.env.RATE_LIMIT_MAX ?? 100),
+		timeWindow: process.env.RATE_LIMIT_WINDOW ?? "1 minute",
+	});
 
 	app.register(swagger, {
 		openapi: {

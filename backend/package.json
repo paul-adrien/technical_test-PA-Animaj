@@ -31,6 +31,8 @@
 		"vitest": "^4.1.5"
 	},
 	"dependencies": {
+		"@fastify/cors": "^11.2.0",
+		"@fastify/rate-limit": "^10.3.0",
 		"@fastify/swagger": "^9.7.0",
 		"@fastify/swagger-ui": "^5.2.6",
 		"better-sqlite3": "^12.9.0",
