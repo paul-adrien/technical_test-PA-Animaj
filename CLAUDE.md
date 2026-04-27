@@ -50,10 +50,13 @@ Table `routes(origin TEXT, destination TEXT, travel_time UNSIGNED INTEGER)`. Rou
     tests/
     Dockerfile
   ```
-- **Algo** : **Dijkstra itératif sur graphe étendu `(planète, fuel_restant)`** + **heap binaire**.
+- **Algo** : **Dijkstra itératif sur graphe étendu `(planète, fuel_restant)`** + **heap binaire** via `heap-js` (lib mature, focus sur l'algo plutôt que sur la structure de données).
   - Arcs : "saut" vers voisin si `fuel ≥ travel_time` (coût = travel_time, conso fuel) ; "refuel" sur place si `fuel < autonomy` (coût = 1, fuel → autonomy).
   - Optimisations en réserve si le gros dataset le demande : **pruning par dominance** sur `(p, f, c)`, puis **A\*** avec heuristique = plus court chemin sans contrainte fuel (pré-calculé via un Dijkstra simple, admissible).
   - Écartés : bidirectional (asymétrie de l'état fuel + critère d'arrêt fragile = mauvais ROI), récursif (cycles + risque stack overflow + moins idiomatique).
+- **Cas limites de `/compute`** :
+  - `arrival == departure` → `200 { duration: 0, route: [departure] }`.
+  - Pas de chemin possible / planète inexistante → `404 { error: "no route to <arrival>" }`.
 - [ ] CI GitHub Actions (bonus : lint + typecheck + tests + docker build)
 
 ## Scalabilité
@@ -66,9 +69,7 @@ Le dataset fourni est minuscule mais **le user testera avec des graphes beaucoup
 
 ## Points ouverts
 
-- [ ] `arrival == departure` → `duration=0, route=[departure]` ? (supposé oui)
-- [ ] Aucune route possible → format réponse ? (404 vs. 200+`duration=-1`)
-- [ ] `departure` absente de la DB au démarrage → crash ou warn ?
+- [ ] `departure` absente de la DB au démarrage → crash (fail-fast) ou warn ? **À trancher en phase 6.**
 - [ ] Frontend hors scope ? (README : "back-end d'une web application")
 
 ## Fichiers
